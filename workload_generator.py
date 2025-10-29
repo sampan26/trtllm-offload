@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 workload_generator.py — Pure utility to build a reproducible long-context workload.
@@ -12,9 +11,12 @@ It produces a JSON list where each item looks like:
 
 Key ideas:
 - You choose target context lengths (e.g., 32K, 64K, 128K tokens).
-- For each context length and requested batch sizes, we synthesize tenant-style prompts
-  (A, B, C, ...) by concatenating semi-distinct paragraphs to approximate the token length.
-- No TRT-LLM dependency. Optional tokenizer: if `tiktoken` is installed, we’ll use it for
+- Simulates serving systems where:
+  1. Initial requests come in → KV cache computed and stored on GPU
+  2. More requests arrive → GPU cache full → earlier KV caches offloaded to CPU/host
+  3. Original requests return → KV cache reloaded from offloaded memory (not recomputed)
+- Creates a pool of distinct prompts, then reuses exact duplicates later in the workload
+- No TRT-LLM dependency. Optional tokenizer: if `tiktoken` is installed, we'll use it for
   token-accurate sizing; otherwise we approximate 4 chars/token.
 
 Usage example:
@@ -22,7 +24,8 @@ Usage example:
     --contexts 32768 65536 131072 \
     --batches-per-context 5 \
     --batch-sizes 8 16 32 \
-    --tenants 4 \
+    --prompt-pool-size 16 \
+    --reuse-start-batch 3 \
     --delay-ms 0 \
     --seed 42 \
     --out workload.json
@@ -121,54 +124,93 @@ def _build_prompt(target_tokens: int, base_paragraphs: List[str]) -> str:
 
     return "".join(buf)
 
-def _tenant_prompts(num_tenants: int, target_tokens: int, seed: int) -> List[str]:
-    """
-    Build 'num_tenants' distinct long system prompts of ~target_tokens each.
-    """
-    # Each tenant gets its own paragraph pool seed to keep overlap limited
-    prompts = []
-    for k in range(num_tenants):
-        paras = _make_paragraphs(n=16, seed=seed + 97 * (k + 1))
-        p = _build_prompt(target_tokens, paras)
-        prompts.append(p)
-    return prompts
-
 def generate_workload(
     contexts: List[int],
     batches_per_context: int,
     batch_sizes: List[int],
-    tenants: int,
+    prompt_pool_size: int,
+    reuse_start_batch: int,
     delay_ms: int,
     seed: int,
 ) -> List[dict]:
+    """
+    Generate workload that simulates serving systems with KV cache offloading.
+    
+    Args:
+        contexts: Target context sizes in tokens
+        batches_per_context: Number of batches per context size
+        batch_sizes: List of possible batch sizes to sample from
+        prompt_pool_size: Number of distinct prompts to create per context size
+        reuse_start_batch: After this many batches, start reusing prompts from the pool
+                         (simulates original requests returning after being offloaded)
+        delay_ms: Inter-batch delay
+        seed: Random seed
+    """
     rng = random.Random(seed)
     items = []
-    # Prebuild tenants per context size for realism
+    
     for ctx in contexts:
-        tenant_system_prompts = _tenant_prompts(tenants, ctx, seed=seed + ctx)
+        # Create a pool of distinct full prompts for this context size
+        # These will be reused later to test offload/reload behavior
+        prompt_pool = []
+        for pool_idx in range(prompt_pool_size):
+            # Create unique prompts by varying the seed per pool index
+            paras = _make_paragraphs(n=16, seed=seed + ctx + 1000 * pool_idx)
+            base_prompt = _build_prompt(ctx, paras)
+            # Add a unique user query to make it a complete request
+            user_query = f"\n\nUSER: Please summarize the preceding context in 2 bullets. Request ID: {pool_idx}"
+            full_prompt = base_prompt + user_query
+            prompt_pool.append(full_prompt)
+        
+        batch_idx = 0
         for _ in range(batches_per_context):
             bs = rng.choice(batch_sizes)
             batch_prompts = []
-            # Alternate tenants to induce churn
-            for i in range(bs):
-                t_idx = i % tenants
-                # Short user turn appended to each system prompt to avoid exact dedupe
-                user = f"\n\nUSER[{i}]: Please summarize the preceding context in 2 bullets."
-                batch_prompts.append(tenant_system_prompts[t_idx] + user)
+            
+            if batch_idx < reuse_start_batch:
+                # Initial phase: use prompts from pool (will fill GPU cache)
+                # After GPU cache fills, these will be offloaded
+                for i in range(bs):
+                    prompt_idx = (batch_idx * max(batch_sizes) + i) % len(prompt_pool)
+                    batch_prompts.append(prompt_pool[prompt_idx])
+            else:
+                # Reuse phase: reintroduce exact same prompts to test reload from offloaded memory
+                # Mix some reused prompts with some new ones
+                reuse_ratio = 0.7  # 70% reused, 30% new
+                for i in range(bs):
+                    if rng.random() < reuse_ratio:
+                        # Reuse a prompt from the pool (exact duplicate)
+                        prompt_idx = rng.randint(0, len(prompt_pool) - 1)
+                        batch_prompts.append(prompt_pool[prompt_idx])
+                    else:
+                        # Occasionally add a new prompt to maintain some churn
+                        new_pool_idx = len(prompt_pool) + (batch_idx * max(batch_sizes) + i)
+                        paras = _make_paragraphs(n=16, seed=seed + ctx + 1000 * new_pool_idx)
+                        base_prompt = _build_prompt(ctx, paras)
+                        user_query = f"\n\nUSER: Please summarize the preceding context in 2 bullets. Request ID: {new_pool_idx}"
+                        batch_prompts.append(base_prompt + user_query)
+            
             items.append({
                 "batch_prompts": batch_prompts,
                 "context_tokens": ctx,
                 "scheduled_delay_ms": delay_ms
             })
+            batch_idx += 1
+    
     return items
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--contexts", type=int, nargs="+", required=True,
                     help="Target context sizes in tokens, e.g., 32768 65536 131072")
-    ap.add_argument("--batches-per-context", type=int, default=4)
-    ap.add_argument("--batch-sizes", type=int, nargs="+", default=[8, 16, 32])
-    ap.add_argument("--tenants", type=int, default=4, help="Distinct long system prompts per context.")
+    ap.add_argument("--batches-per-context", type=int, default=4,
+                    help="Number of batches per context size")
+    ap.add_argument("--batch-sizes", type=int, nargs="+", default=[8, 16, 32],
+                    help="Possible batch sizes to sample from")
+    ap.add_argument("--prompt-pool-size", type=int, default=16,
+                    help="Number of distinct prompts to create per context size (will be reused)")
+    ap.add_argument("--reuse-start-batch", type=int, default=3,
+                    help="After this many batches, start reusing prompts from pool (tests offload/reload)")
     ap.add_argument("--delay-ms", type=int, default=0, help="Inter-batch delay to simulate bursts.")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", type=Path, required=True)
@@ -178,7 +220,8 @@ def main():
         contexts=args.contexts,
         batches_per_context=args.batches_per_context,
         batch_sizes=args.batch_sizes,
-        tenants=args.tenants,
+        prompt_pool_size=args.prompt_pool_size,
+        reuse_start_batch=args.reuse_start_batch,
         delay_ms=args.delay_ms,
         seed=args.seed,
     )

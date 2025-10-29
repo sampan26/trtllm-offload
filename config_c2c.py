@@ -2,19 +2,19 @@
 """
 config_c2c.py — C2C (NVLink/C2C-style coherent link ≈900 GB/s effective)
 
-Aggressive settings that assume fast, coherent CPU<->GPU memory:
-- Large host_cache_size (encourage offload)
-- Slightly larger tokens_per_block to improve transfer efficiency
-- Small GPU max_tokens to force churn and showcase offload wins
+Aggressive settings optimized for long-context serving with fast offloading:
+- Moderate GPU cache that forces offload for long contexts (32K+ tokens)
+- Very large block sizes to maximize bandwidth on fast coherent links
+- Large host cache for multi-tenant long-context serving
 Tweak via CLI passthrough flags if desired.
 """
 
 from tensorrt_llm.llmapi import KvCacheConfig
 
-# Defaults chosen to highlight offloading on C2C-class systems
-DEFAULT_GPU_KV_MAX_TOKENS = 2048          # keep small to induce offload/reload churn
-DEFAULT_TOKENS_PER_BLOCK   = 64           # bigger blocks improve throughput on fast links
-DEFAULT_HOST_CACHE_GB      = 64           # give the host a big cache (adjust to your RAM)
+# Defaults for C2C (NVLink/C2C-style coherent link ≈900 GB/s effective) with long-context offloading
+DEFAULT_GPU_KV_MAX_TOKENS = 8192          # small GPU cache relative to long contexts (32K+ tokens) to force offload
+DEFAULT_TOKENS_PER_BLOCK   = 128          # large blocks maximize throughput on fast coherent links
+DEFAULT_HOST_CACHE_GB      = 128          # large host cache for multi-tenant long-context serving
 DEFAULT_ENABLE_REUSE       = True
 
 def _gb_to_bytes(gb: int) -> int:
@@ -34,15 +34,15 @@ def build_kv_config(args) -> KvCacheConfig:
     enable_reuse      = getattr(args, "c2c_enable_reuse",      DEFAULT_ENABLE_REUSE)
 
     # Rationale:
-    # - ~900 GB/s coherent path makes offload/reload faster than recompute for many sizes.
-    # - Larger blocks reduce bookkeeping and increase effective bandwidth utilization.
-    # - Large host cache makes multi-tenant reuse viable.
+    # - ~900 GB/s coherent path makes offload/reload much faster than recompute for long contexts
+    # - Very large blocks (128 tokens) maximize bandwidth utilization on fast links
+    # - 128GB host cache supports multiple concurrent long-context sessions
+    # - 8192 token GPU cache allows initial prefetch, then offloads remainder of long contexts (32K+)
     return KvCacheConfig(
         enable_block_reuse=bool(enable_reuse),
         max_tokens=int(gpu_kv_max_tokens),
         tokens_per_block=int(tokens_per_block),
         host_cache_size=_gb_to_bytes(int(host_cache_gb)),
     )
-
 
 
