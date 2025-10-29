@@ -1,0 +1,78 @@
+{
+  "runs": {
+    "pcie": [
+      {
+        "aggregate": {
+          "wall_time_seconds": 270.58711981300075,
+          "num_requests": 5,
+          "throughput_req_per_s": 0.01847833704522017,
+          "ttft_p50_s": 54.34555493099833,
+          "ttft_p95_s": 54.69042048399933,
+          "ttft_p99_s": 54.69042048399933,
+          "latency_p50_s": 54.34555493099833,
+          "latency_p95_s": 54.69042048399933,
+          "latency_p99_s": 54.69042048399933
+        },
+        "samples": [
+          {
+            "batch_index": 0,
+            "request_index_in_batch": 0,
+            "ttft_seconds": 54.58787454100093,
+            "total_latency_seconds": 54.58787454100093,
+            "context_tokens": 32768,
+            "prompt_chars": 73996
+          },
+          {
+            "batch_index": 1,
+            "request_index_in_batch": 0,
+            "ttft_seconds": 54.090313009000965,
+            "total_latency_seconds": 54.090313009000965,
+            "context_tokens": 32768,
+            "prompt_chars": 75132
+          },
+          {
+            "batch_index": 2,
+            "request_index_in_batch": 0,
+            "ttft_seconds": 54.69042048399933,
+            "total_latency_seconds": 54.69042048399933,
+            "context_tokens": 32768,
+            "prompt_chars": 74157
+          },
+          {
+            "batch_index": 3,
+            "request_index_in_batch": 0,
+            "ttft_seconds": 54.34555493099833,
+            "total_latency_seconds": 54.34555493099833,
+            "context_tokens": 32768,
+            "prompt_chars": 75826
+          },
+          {
+            "batch_index": 4,
+            "request_index_in_batch": 0,
+            "ttft_seconds": 52.87083677700139,
+            "total_latency_seconds": 52.87083677700139,
+            "context_tokens": 32768,
+            "prompt_chars": 75132
+          }
+        ],
+        "log_metrics": {
+          "cache_hit_rate": null,
+          "reused_blocks": null,
+          "offloaded_blocks": null,
+          "observed_offload_bandwidth_gbps": null
+        },
+        "run_meta": {
+          "system_label": "pcie",
+          "model": "Qwen/Qwen3-8B",
+          "max_batch_size": 1,
+          "max_seq_len": 131072,
+          "config_module": "config_pcie",
+          "notes": "PCIe - single prompt per batch",
+          "trtllm_log_file": "/tmp/tllm_pcie_5kssnauh.log",
+          "timestamp_utc": "2025-10-29T19:52:49Z",
+          "wall_time_seconds_script": 270.58716994600036
+        }
+      }
+    ]
+  }
+}
