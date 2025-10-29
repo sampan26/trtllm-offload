@@ -13,8 +13,8 @@ from tensorrt_llm.llmapi import KvCacheConfig
 
 # Defaults for PCIe Gen5 (≈64 GB/s host link) with long-context offloading
 # Note: Even on slower PCIe, we enable offloading to test reload behavior
-DEFAULT_GPU_KV_MAX_TOKENS = 4096          # small GPU cache for long context (32K+ tokens) to force offload
-DEFAULT_TOKENS_PER_BLOCK   = 64           # larger blocks improve transfer efficiency even on PCIe
+DEFAULT_GPU_KV_MAX_TOKENS = 65536          # small GPU cache for long context (32K+ tokens) to force offload
+DEFAULT_TOKENS_PER_BLOCK   = 128           # larger blocks improve transfer efficiency even on PCIe
 DEFAULT_HOST_CACHE_GB      = 32           # enable offloading to test reload from host memory
 DEFAULT_ENABLE_REUSE       = True         # enable block reuse for offload/reload testing
 
