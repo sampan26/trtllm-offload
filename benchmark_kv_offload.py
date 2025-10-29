@@ -281,6 +281,7 @@ def main():
         model=args.model,
         max_batch_size=args.max_batch_size,
         max_seq_len=args.max_seq_len,
+        max_num_tokens=131072,
         kv_cache_config=kv_cfg,
     )
 

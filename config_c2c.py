@@ -1,8 +1,6 @@
 
 """
-config_c2c.py — C2C (NVLink/C2C-style coherent link ≈900 GB/s effective)
-
-Aggressive settings optimized for long-context serving with fast offloading:
+config_c2c.py — C2C (NVLink/C2C-style coherent link ≈900 GB/s effective)Aggressive settings optimized for long-context serving with fast offloading:
 - Moderate GPU cache that forces offload for long contexts (32K+ tokens)
 - Very large block sizes to maximize bandwidth on fast coherent links
 - Large host cache for multi-tenant long-context serving
@@ -44,5 +42,3 @@ def build_kv_config(args) -> KvCacheConfig:
         tokens_per_block=int(tokens_per_block),
         host_cache_size=_gb_to_bytes(int(host_cache_gb)),
     )
-
-
